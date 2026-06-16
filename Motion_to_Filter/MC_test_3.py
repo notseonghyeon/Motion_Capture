@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import time
+import random
 from filters import FILTER_REGISTRY
 
 mp_hands = mp.solutions.hands
