@@ -35,44 +35,48 @@ def filter_pencil(frame): # 펜슬
     return cv2.resize(sk_color, (w, h))
 
 def filter_glitch(frame, intensity=1.0):
-    glitch_frame = frame.copy()
     h, w = frame.shape[:2]
 
-    # 1) 가로 밀기: 개수와 거리를 intensity로 키움
-    num_slices = int(10 * intensity)        # 3 -> 10+
-    max_shift = int(60 * intensity)         # 20 -> 60+
-    band = max(5, int(20 / intensity))      # 밴드 높이도 다양하게
+    # 절반 해상도에서 처리 → 픽셀 수 1/4, 블록감은 오히려 강해짐
+    sw, sh = w // 2, h // 2
+    small = cv2.resize(frame, (sw, sh), interpolation=cv2.INTER_LINEAR)
+    g = small.copy()
+
+    # 1) 가로 밀기
+    num_slices = int(10 * intensity)
+    max_shift = int(30 * intensity)   # 해상도 절반이므로 거리도 절반
+    band = max(3, int(10 / intensity))
 
     for _ in range(num_slices):
-        bh = random.randint(3, band)        # 밴드 높이 무작위
-        y = random.randint(0, h - bh)
+        bh = random.randint(2, band)
+        y  = random.randint(0, sh - bh)
         shift = random.randint(-max_shift, max_shift)
-
         if shift > 0:
-            glitch_frame[y:y+bh, shift:w] = frame[y:y+bh, 0:w-shift]
+            g[y:y+bh, shift:sw] = small[y:y+bh, 0:sw-shift]
         elif shift < 0:
-            glitch_frame[y:y+bh, 0:w+shift] = frame[y:y+bh, -shift:w]
+            g[y:y+bh, 0:sw+shift] = small[y:y+bh, -shift:sw]
 
-    # 2) RGB 채널 분리 (색 번짐) — BGR 기준
-    cshift = int(15 * intensity)
+    # 2) 채널 번짐 — split/merge 대신 배열 슬라이싱으로 복사 최소화
+    cshift = int(8 * intensity)
     if cshift > 0:
-        b, g, r = cv2.split(glitch_frame)
-        r = np.roll(r, cshift, axis=1)      # 빨강 오른쪽으로
-        b = np.roll(b, -cshift, axis=1)     # 파랑 왼쪽으로
-        glitch_frame = cv2.merge([b, g, r])
+        out = g.copy()
+        out[:, cshift:,  2] = g[:, :sw-cshift, 2]   # R 오른쪽
+        out[:, :sw-cshift, 0] = g[:, cshift:,  0]   # B 왼쪽
+        g = out
 
-    # 3) 블록 깨짐: 무작위 직사각형을 다른 위치에서 복사
+    # 3) 블록 깨짐
     num_blocks = int(5 * intensity)
     for _ in range(num_blocks):
-        bw = random.randint(20, 80)
-        bh = random.randint(10, 40)
-        x1 = random.randint(0, w - bw)
-        y1 = random.randint(0, h - bh)
-        x2 = random.randint(0, w - bw)
-        y2 = random.randint(0, h - bh)
-        glitch_frame[y1:y1+bh, x1:x1+bw] = frame[y2:y2+bh, x2:x2+bw]
+        bw = random.randint(10, 40)
+        bh = random.randint(5, 20)
+        x1 = random.randint(0, sw - bw)
+        y1 = random.randint(0, sh - bh)
+        x2 = random.randint(0, sw - bw)
+        y2 = random.randint(0, sh - bh)
+        g[y1:y1+bh, x1:x1+bw] = small[y2:y2+bh, x2:x2+bw]
 
-    return glitch_frame
+    # 원래 해상도로 복원 (NEAREST → 블록 픽셀 느낌 유지)
+    return cv2.resize(g, (w, h), interpolation=cv2.INTER_NEAREST)
 
 
 # 이름 → 함수 매핑. 새 필터를 추가할 때 여기에만 등록하면 됨.

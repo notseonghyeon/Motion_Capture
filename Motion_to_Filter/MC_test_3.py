@@ -19,10 +19,17 @@ FILTERS = list(FILTER_REGISTRY.keys())
 filter_idx = 0
 mode = FILTERS[filter_idx]
 
-# 제스처 상태 추적용
+# 제스처 상태 추적용 (오른손: 필터 전환)
 prev_fist = False         # 직전 프레임에서 주먹이었는지
 last_switch_time = 0.0    # 마지막으로 필터 바꾼 시각
 COOLDOWN = 0.5            # 초 단위 쿨다운
+
+# 왼손 제스처 상태 추적용 (고정 영역)
+prev_left_fist = False    # 직전 프레임에서 왼손이 주먹이었는지
+left_open_time = 0.0      # 왼손을 편 시각 (0이면 대기 중 아님)
+FREEZE_DELAY = 0.5        # 손을 편 뒤 고정까지 딜레이(초)
+frozen_quads = []         # 고정된 (quad, mode) 쌍 목록 — 중첩 누적
+current_quad = None       # 이번 프레임의 라이브 사각형
 
 def order_points(pts):
     """네 점을 무게중심 기준 각도순으로 정렬해 사각형이 꼬이지 않게 함"""
@@ -65,7 +72,6 @@ with mp_hands.Hands(
 
         # 왼손/오른손의 엄지끝·검지끝 좌표를 담을 딕셔너리
         tips = {"Left": None, "Right": None}
-
         if results.multi_hand_landmarks and results.multi_handedness:
             for hand_landmarks, handedness in zip(
                 results.multi_hand_landmarks, results.multi_handedness
@@ -80,12 +86,19 @@ with mp_hands.Hands(
                 if label == "Right":
                     fist_now = is_fist(hand_landmarks)
                     now = time.time()
-                    # 직전이 주먹이고 지금 폈으면 = 펴는 순간
                     if prev_fist and not fist_now and (now - last_switch_time) > COOLDOWN:
                         filter_idx = (filter_idx + 1) % len(FILTERS)
                         mode = FILTERS[filter_idx]
                         last_switch_time = now
                     prev_fist = fist_now
+
+                # 왼손 기준으로 주먹/폄 감지해 영역 고정
+                if label == "Left":
+                    left_fist_now = is_fist(hand_landmarks)
+                    now = time.time()
+                    if prev_left_fist and not left_fist_now:
+                        left_open_time = now
+                    prev_left_fist = left_fist_now
 
                 mp_draw.draw_landmarks(
                     frame,
@@ -95,7 +108,24 @@ with mp_hands.Hands(
                     mp_styles.get_default_hand_connections_style(),
                 )
 
-        # 양손이 모두 잡혔을 때만 사각형 영역 생성
+        # 딜레이 경과 후 현재 라이브 quad를 고정
+        now = time.time()
+        if left_open_time > 0 and (now - left_open_time) >= FREEZE_DELAY:
+            if current_quad is not None:
+                frozen_quads.append((current_quad.copy(), mode))  # 누적
+            left_open_time = 0.0
+
+        # 고정 영역들 순서대로 합성 (각자 고정 시점 필터 유지)
+        for fq, fm in frozen_quads:
+            frozen_filtered = FILTER_REGISTRY[fm](frame)
+            frozen_mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(frozen_mask, [fq], 255)
+            frozen_mask3 = cv2.cvtColor(frozen_mask, cv2.COLOR_GRAY2BGR) > 0
+            frame = np.where(frozen_mask3, frozen_filtered, frame)
+            cv2.polylines(frame, [fq], True, (0, 0, 255), 2)
+
+        # 양손이 모두 잡혔을 때 라이브 사각형 영역 생성
+        current_quad = None
         if tips["Left"] is not None and tips["Right"] is not None:
             quad = [
                 tips["Left"][0],   # 왼손 엄지끝
@@ -104,18 +134,16 @@ with mp_hands.Hands(
                 tips["Right"][0],  # 오른손 엄지끝
             ]
             quad = order_points(quad)
+            current_quad = quad
 
-            # 다각형 마스크 생성
-            mask = np.zeros((h, w), dtype=np.uint8)
-            cv2.fillPoly(mask, [quad], 255)
+            # 라이브 영역에 현재 필터 합성 (고정 영역 위에 덮어씌움)
+            live_filtered = FILTER_REGISTRY[mode](frame)
+            live_mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(live_mask, [quad], 255)
+            live_mask3 = cv2.cvtColor(live_mask, cv2.COLOR_GRAY2BGR) > 0
+            frame = np.where(live_mask3, live_filtered, frame)
 
-            # 필터 적용된 전체 프레임을 미리 만들고, 마스크 영역만 합성
-            filtered = FILTER_REGISTRY[mode](frame)
-
-            mask3 = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) > 0
-            frame = np.where(mask3, filtered, frame)
-
-            # 영역 테두리 표시 (원하지 않으면 주석 처리)
+            # 초록 테두리
             cv2.polylines(frame, [quad], True, (0, 255, 0), 2)
 
         # 현재 필터 이름 화면에 표시
