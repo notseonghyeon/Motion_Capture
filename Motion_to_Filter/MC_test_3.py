@@ -1,5 +1,5 @@
 ## Hand_Quad_Filter
-# 20260615 ASH
+# 20260616 ASH
 
 import cv2
 import numpy as np
@@ -22,21 +22,18 @@ prev_fist = False         # 직전 프레임에서 주먹이었는지
 last_switch_time = 0.0    # 마지막으로 필터 바꾼 시각
 COOLDOWN = 0.5            # 초 단위 쿨다운
 
-
 def order_points(pts):
-    """네 점을 무게중심 기준 각도순으로 정렬해 다각형이 꼬이지 않게 함"""
+    """네 점을 무게중심 기준 각도순으로 정렬해 사각형이 꼬이지 않게 함"""
     pts = np.array(pts, dtype=np.float32)
     center = pts.mean(axis=0)
     angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
     order = np.argsort(angles)
     return pts[order].astype(np.int32)
 
-
 def get_fingertip(hand_landmarks, idx, w, h):
     """랜드마크 인덱스의 (x, y)를 픽셀 좌표로 변환"""
     lm = hand_landmarks.landmark[idx]
     return [int(lm.x * w), int(lm.y * h)]
-
 
 def is_fist(hand_landmarks):
     """검지·중지·약지·새끼가 모두 접혔으면 주먹으로 판단"""
@@ -48,22 +45,21 @@ def is_fist(hand_landmarks):
             folded += 1
     return folded == 4
 
-
 with mp_hands.Hands(
-    max_num_hands=2,
-    min_detection_confidence=0.5,
-    min_tracking_confidence=0.5,
-    model_complexity=1,
+    max_num_hands=2,                           # 최대 추적할 손 개수
+    min_detection_confidence=0.5,              # 손이 인식되었다고 판단하려면 최소한 이 정도 확신이 필요
+    min_tracking_confidence=0.5,               # 손 추적이 얼마나 안정적이어야 하는지
+    model_complexity=1,                        # 손 인식에 쓸 모델의 정밀도
 ) as hands:
     while cap.isOpened():
-        ok, frame = cap.read()
+        ok, frame = cap.read()                        # 웹캠에서 프레임 읽기
         if not ok:
             break
 
-        frame = cv2.flip(frame, 1)
-        h, w = frame.shape[:2]
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = hands.process(rgb)
+        frame = cv2.flip(frame, 1)                    # 거울처럼 좌우 반전
+        h, w = frame.shape[:2]                        # 프레임 높이와 너비
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # mediapipe는 RGB 입력을 기대함
+        results = hands.process(rgb)                  # 손 추정 수행
 
         # 왼손/오른손의 엄지끝·검지끝 좌표를 담을 딕셔너리
         tips = {"Left": None, "Right": None}
