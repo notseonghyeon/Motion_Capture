@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import time
+from filters import FILTER_REGISTRY
 
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
@@ -13,7 +14,7 @@ mp_styles = mp.solutions.drawing_styles
 cap = cv2.VideoCapture(0)
 
 # 필터 목록과 현재 인덱스
-FILTERS = ["glass", "noise", "pixel", "invert", "thermal"]
+FILTERS = list(FILTER_REGISTRY.keys())
 filter_idx = 0
 mode = FILTERS[filter_idx]
 
@@ -108,25 +109,7 @@ with mp_hands.Hands(
             cv2.fillPoly(mask, [quad], 255)
 
             # 필터 적용된 전체 프레임을 미리 만들고, 마스크 영역만 합성
-            if mode == "glass":
-                filtered = cv2.GaussianBlur(frame, (0, 0), sigmaX=25)
-
-            elif mode == "noise":
-                noise = np.random.randint(0, 80, (h, w, 3), dtype=np.uint8)
-                filtered = cv2.add(frame, noise)
-
-            elif mode == "pixel":  # 모자이크(픽셀화)
-                small = cv2.resize(frame, (w // 20, h // 20),
-                                   interpolation=cv2.INTER_LINEAR)
-                filtered = cv2.resize(small, (w, h),
-                                      interpolation=cv2.INTER_NEAREST)
-
-            elif mode == "invert":  # 색반전
-                filtered = cv2.bitwise_not(frame)
-
-            elif mode == "thermal":  # 열화상 느낌
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                filtered = cv2.applyColorMap(gray, cv2.COLORMAP_JET)
+            filtered = FILTER_REGISTRY[mode](frame)
 
             mask3 = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) > 0
             frame = np.where(mask3, filtered, frame)
@@ -145,7 +128,8 @@ with mp_hands.Hands(
             2,
         )
 
-        cv2.imshow("Hand Quad Filter", frame)
+        display = cv2.resize(frame, (640, 360)) # 화면 크기 조정
+        cv2.imshow("Hand Quad Filter", display)
         if cv2.waitKey(1) & 0xFF == 27:   # ESC 종료
             break
 
